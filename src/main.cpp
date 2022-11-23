@@ -17,6 +17,10 @@ volatile int lastmillis = 0;
 const int LCD_COLS = 8;
 const int LCD_ROWS = 2;
 
+// Tulosta serial monitoriin jännitteen arvo
+// analogisesta pinnistä A5
+const bool printVoltage = true;
+
 /**
  * LCD kytkennät
  *
@@ -34,6 +38,7 @@ LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 void print(char str[]);
 void handleLedState();
 void setTimeForUserInput();
+uint16_t ADCAnalogRead(uint8_t ch);
 
 void setup()
 {
@@ -67,39 +72,81 @@ void setup()
 
 void loop()
 {
-  if (ledState == RED)
-  {
-    if (timeForInput == 0)
+  if (printVoltage) {
+    int bitVal = ADCAnalogRead(5);
+    double percentage = (double)bitVal / 1023.0;
+    double voltage = (double)percentage * 5.0;
+
+    Serial.println("----------");
+    Serial.println(bitVal);
+    Serial.println(analogRead(A5));
+    Serial.println(percentage);
+    Serial.println(voltage);
+
+    char buffer[16];
+    dtostrf(voltage, 4, 2, buffer);
+    print(buffer);
+    Serial.println(buffer);
+
+    delay(200);
+  } else {
+    if (ledState == RED)
     {
-      ledState = YELLOW;
+      if (timeForInput == 0)
+      {
+        ledState = YELLOW;
+      }
+      else
+      {
+        print("Wait for it...");
+        timeForInput--;
+      }
+    }
+    else if (ledState == YELLOW)
+    {
+      print("GO GO GO!");
+      roundPassed++;
+
+      // too long, throw to result screen
+      if (roundPassed >= 200)
+      {
+        ledState = GREEN;
+      }
     }
     else
     {
-      print("Wait for it...");
-      timeForInput--;
+      char buffer[16];
+      sprintf(buffer, "%d rounds", roundPassed);
+      print(buffer);
     }
-  }
-  else if (ledState == YELLOW)
-  {
-    print("GO GO GO!");
-    roundPassed++;
-  }
-  else
-  {
-    char buffer[16];
-    sprintf(buffer, "%d rounds", roundPassed);
-    print(buffer);
-  }
 
-  handleLedState();
-  delay(20);
+    handleLedState();
+  
+    delay(20);
+  }
+}
+
+uint16_t ADCAnalogRead(uint8_t ch)
+{
+  // Alimmat bitit arvoon 0
+  ADMUX = (ADMUX & 0xF8) | ch;
+
+  // Aloitetaan luku, asetetaan ADSC bitti 1
+  ADCSRA |= (1 << ADSC);
+
+  // Odotetaan, kunnes ADCS on palannut arvoon 0
+  while (ADCSRA & (1 << ADSC));
+
+  // Palautetaan saatu arvo
+  // Vaihtoehtoisesti: ADCL | (ADCH << 8);
+  return (ADC);
 }
 
 /**
  * Kirjoita teksti LCD näytölle
- * 
+ *
  * Alla LCD näytön kursorin paikat, kun kirjoitetaan näytölle
- * 
+ *
  *      (0, 0)              (0, 1)
  * | X X X X X X X X | X X X X X X X X |
  */
@@ -139,7 +186,7 @@ void print(char str[])
 
 /**
  * Asetetaan arvot pinneille
-*/
+ */
 void handleLedState()
 {
   // Pinnit 6 ja 7 HIGH -- Keltainen
@@ -157,7 +204,7 @@ void handleLedState()
 
 /**
  * Nollaa ajastimet, ja aloittaa pelin alusta
-*/
+ */
 void setTimeForUserInput()
 {
   timeForInput = (rand() % 300) + 60;
@@ -180,12 +227,10 @@ ISR(PCINT0_vect)
   // käyttäjän painallus, josta lasketaan aika
   if (ledState == RED && timeForInput == 0)
     ledState = YELLOW;
-  
 
   // Vaihdetaan tulosnäkymään
   else if (ledState == YELLOW)
     ledState = GREEN;
-  
 
   // Aloitetaan alusta, nollataan arvot ja arvotaan uusi arvo odotusajalle
   else if (ledState == GREEN)
